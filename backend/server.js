@@ -19,6 +19,12 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch(err => { console.error("❌ MongoDB:", err.message); process.exit(1); });
 
+
+  // Example API route
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Backend is working!' });
+});
+
 // ── Auth middleware ───────────────────────────────────────────
 const auth = (req,res,next) => {
   const t = req.headers.authorization?.split(" ")[1];
@@ -381,5 +387,4 @@ app.post("/api/admin/users/:id/remove-plan", adminAuth, async (req,res) => {
 app.get("/api/plans", (_,res) => res.json(PLANS));
 app.get("/health",   (_,res) => res.json({ status:"ok", time:new Date() }));
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 USDTMINE API running on port ${PORT}`));
+module.exports = app;

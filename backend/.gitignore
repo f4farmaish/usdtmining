@@ -1,0 +1,10 @@
+# Node modules
+backend/node_modules/
+frontend/vite-project/node_modules/
+
+# Environment variables
+backend/.env
+frontend/vite-project/.env
+
+# Logs
+*.log

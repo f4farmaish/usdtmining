@@ -418,7 +418,7 @@ function PlansScreen({setScreen,setSelPlan,user}) {
 // ── Referral Mini ──────────────────────────────────────────────────────────
 function RefMini({user,setScreen}) {
   const [copied,setCopied]=useState(false);
-  const link = `${window.location.origin}?ref=${user.refCode}`;
+const link = `${window.location.origin}?ref=${user.refCode}`;
   const copy = () => { try{navigator.clipboard.writeText(link);}catch{} setCopied(true); setTimeout(()=>setCopied(false),2000); };
   return (
     <Card style={{marginTop:14,border:`1px solid ${C.border}`}}>

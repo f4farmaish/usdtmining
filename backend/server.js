@@ -533,10 +533,18 @@ app.get("/api/admin/chat/threads", adminAuth, async (req, res) => {
       { $sort:{ lastTime:-1 } },
       { $limit:100 },
     ]);
-    const populated = await Promise.all(threads.map(async t => {
-      const u = await User.findById(t._id,"name email lastActive");
-      return { ...t, user:u };
-    }));
+   const populated = await Promise.all(threads.map(async t => {
+  const userId = t._id.toString();
+  const u = await User.findById(userId, "name email lastActive");
+  return {
+    userId,
+    lastMessage: t.lastMessage,
+    lastSender:  t.lastSender,
+    lastTime:    t.lastTime,
+    unread:      t.unread,
+    user: u ? { name:u.name, email:u.email, lastActive:u.lastActive } : null,
+  };
+}));
     res.json(populated);
   } catch(e) { res.status(500).json({ error:"Server error" }); }
 });

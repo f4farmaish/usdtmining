@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api, PLANS, fmt, timeAgo } from "./api.js";
 
 const A = {
@@ -419,9 +419,10 @@ function UsersTab({adminKey,onMsg,onRefreshStats}){
 // ── Chat Tab ──────────────────────────────────────────────────
 function ChatTab({adminKey,onMsg}){
   const [threads,setThreads]=useState([]); const [loading,setLoading]=useState(true);
-  const [activeUser,setActiveUser]=useState(null);
+  const [activeUser,setActiveUser]=useState(null); // { userId:string, name, email, lastActive }
   const [msgs,setMsgs]=useState([]); const [reply,setReply]=useState("");
   const [sending,setSending]=useState(false);
+  const bottomRef=useRef(null);
 
   const loadThreads=useCallback(async()=>{
     try{setThreads(await api.aChatThreads(adminKey));}catch(e){onMsg(e.message,"err");}
@@ -430,31 +431,40 @@ function ChatTab({adminKey,onMsg}){
 
   useEffect(()=>{ loadThreads(); const t=setInterval(loadThreads,15000); return()=>clearInterval(t); },[loadThreads]);
 
-  const openThread=async(thread)=>{
-    setActiveUser(thread);
-    try{setMsgs(await api.aChatUser(adminKey,thread._id.toString()));}catch(e){onMsg(e.message,"err");}
-    loadThreads();
-  };
-
+  const openThread = async(thread) => {
+  const uid = thread.userId;
+  if(!uid) return;
+  const info = { userId:uid, name:thread.user?.name||"User", email:thread.user?.email||"", lastActive:thread.user?.lastActive };
+  setActiveUser(info);
+  setMsgs([]);
+  try { setMsgs(await api.aChatUser(adminKey, uid)); } catch(e) { onMsg(e.message,"err"); }
+  loadThreads();
+};
   const sendReply=async()=>{
     if(!reply.trim()||!activeUser) return;
     setSending(true);
     try{
-      const msg=await api.aChatReply(adminKey,activeUser._id.toString(),reply.trim());
+      const msg=await api.aChatReply(adminKey, activeUser.userId, reply.trim());
       setMsgs(m=>[...m,msg]); setReply(""); loadThreads();
-    }catch(e){onMsg(e.message,"err");}
-    finally{setSending(false);}
+      setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
+    }catch(e){ onMsg(e.message,"err"); }
+    finally{ setSending(false); }
   };
+
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs]);
 
   if(activeUser) return(
     <div>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-        <button onClick={()=>setActiveUser(null)} style={{background:"none",border:"none",color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7,border:`1px solid ${A.border}`}}>← THREADS</button>
+        <button onClick={()=>setActiveUser(null)} style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>← THREADS</button>
         <div style={{flex:1}}>
-          <div style={{color:A.text,fontFamily:A.mono,fontSize:12,fontWeight:700}}>{activeUser.user?.name||"User"}</div>
-          <div style={{color:A.dim,fontSize:9,fontFamily:A.mono}}>{activeUser.user?.email} · <ActiveDot lastActive={activeUser.user?.lastActive}/></div>
+          <div style={{color:A.text,fontFamily:A.mono,fontSize:12,fontWeight:700}}>{activeUser.name}</div>
+          <div style={{color:A.dim,fontSize:9,fontFamily:A.mono,display:"flex",alignItems:"center",gap:6}}>
+            {activeUser.email} · <ActiveDot lastActive={activeUser.lastActive}/>
+          </div>
         </div>
-        <button onClick={()=>openThread(activeUser)} style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>🔄</button>
+        <button onClick={()=>openThread({userId:activeUser.userId,user:{name:activeUser.name,email:activeUser.email,lastActive:activeUser.lastActive},_id:activeUser.userId})}
+          style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>🔄</button>
       </div>
       <div style={{background:"rgba(0,0,0,.3)",borderRadius:12,border:`1px solid ${A.border}`,padding:14,minHeight:300,maxHeight:440,overflowY:"auto",marginBottom:12,display:"flex",flexDirection:"column",gap:8}}>
         {msgs.length===0&&<div style={{color:A.faint,fontFamily:A.mono,fontSize:10,textAlign:"center",padding:"30px 0"}}>No messages yet</div>}
@@ -467,12 +477,20 @@ function ChatTab({adminKey,onMsg}){
             </div>
           </div>
         ))}
+        <div ref={bottomRef}/>
       </div>
-      <div style={{display:"flex",gap:8}}>
-        <AInput placeholder="Type reply..." value={reply} onChange={e=>setReply(e.target.value)} style={{flex:1}}
-          onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendReply()}/>
-        <ABtn c="primary" onClick={sendReply} disabled={sending||!reply.trim()} style={{padding:"9px 18px"}}>
-          {sending?"…":"SEND →"}
+      {/* Reply box — plain textarea so onKeyDown works reliably */}
+      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+        <textarea
+          placeholder="Type reply... (Enter to send)"
+          value={reply}
+          onChange={e=>setReply(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendReply(); } }}
+          rows={2}
+          style={{flex:1,background:"rgba(167,139,250,.07)",border:`1px solid rgba(167,139,250,.3)`,borderRadius:8,padding:"10px 13px",color:A.text,fontFamily:"inherit",fontSize:12,outline:"none",resize:"none",lineHeight:1.5}}
+        />
+        <ABtn c="primary" onClick={sendReply} disabled={sending||!reply.trim()} style={{padding:"12px 20px",height:52,flexShrink:0}}>
+          {sending?<Spin/>:"SEND →"}
         </ABtn>
       </div>
     </div>

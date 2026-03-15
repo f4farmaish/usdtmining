@@ -417,34 +417,45 @@ function UsersTab({adminKey,onMsg,onRefreshStats}){
 }
 
 // ── Chat Tab ──────────────────────────────────────────────────
+function extractUid(t){
+  if(typeof t.userId==="string"&&t.userId.length>5) return t.userId;
+  if(t.userId&&t.userId.$oid) return t.userId.$oid;
+  if(typeof t._id==="string"&&t._id.length>5) return t._id;
+  if(t._id&&t._id.$oid) return t._id.$oid;
+  return null;
+}
 function ChatTab({adminKey,onMsg}){
   const [threads,setThreads]=useState([]); const [loading,setLoading]=useState(true);
-  const [activeUser,setActiveUser]=useState(null); // { userId:string, name, email, lastActive }
+  const [activeUser,setActiveUser]=useState(null);
   const [msgs,setMsgs]=useState([]); const [reply,setReply]=useState("");
-  const [sending,setSending]=useState(false);
+  const [sending,setSending]=useState(false); const [dbg,setDbg]=useState("");
   const bottomRef=useRef(null);
 
   const loadThreads=useCallback(async()=>{
-    try{setThreads(await api.aChatThreads(adminKey));}catch(e){onMsg(e.message,"err");}
+    try{
+      const data=await api.aChatThreads(adminKey);
+      setThreads(data);
+      if(data&&data.length>0) setDbg(JSON.stringify(data[0],null,2));
+    }catch(e){onMsg(e.message,"err");}
     finally{setLoading(false);}
   },[adminKey]);
 
   useEffect(()=>{ loadThreads(); const t=setInterval(loadThreads,15000); return()=>clearInterval(t); },[loadThreads]);
 
-  const openThread = async(thread) => {
-  const uid = thread.userId;
-  if(!uid) return;
-  const info = { userId:uid, name:thread.user?.name||"User", email:thread.user?.email||"", lastActive:thread.user?.lastActive };
-  setActiveUser(info);
-  setMsgs([]);
-  try { setMsgs(await api.aChatUser(adminKey, uid)); } catch(e) { onMsg(e.message,"err"); }
-  loadThreads();
-};
+  const openThread=async(thread)=>{
+    const uid=extractUid(thread);
+    if(!uid){ onMsg("NO USER ID — see debug panel below","err"); return; }
+    const info={userId:uid,name:thread.user?.name||thread.userId?.name||"User",email:thread.user?.email||thread.userId?.email||"",lastActive:thread.user?.lastActive};
+    setActiveUser(info); setMsgs([]);
+    try{ setMsgs(await api.aChatUser(adminKey,uid)); }catch(e){ onMsg(e.message,"err"); }
+    loadThreads();
+  };
+
   const sendReply=async()=>{
     if(!reply.trim()||!activeUser) return;
     setSending(true);
     try{
-      const msg=await api.aChatReply(adminKey, activeUser.userId, reply.trim());
+      const msg=await api.aChatReply(adminKey,activeUser.userId,reply.trim());
       setMsgs(m=>[...m,msg]); setReply(""); loadThreads();
       setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
     }catch(e){ onMsg(e.message,"err"); }
@@ -456,15 +467,13 @@ function ChatTab({adminKey,onMsg}){
   if(activeUser) return(
     <div>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-        <button onClick={()=>setActiveUser(null)} style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>← THREADS</button>
+        <button onClick={()=>{setActiveUser(null);setMsgs([]);}} style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>{"<- THREADS"}</button>
         <div style={{flex:1}}>
           <div style={{color:A.text,fontFamily:A.mono,fontSize:12,fontWeight:700}}>{activeUser.name}</div>
-          <div style={{color:A.dim,fontSize:9,fontFamily:A.mono,display:"flex",alignItems:"center",gap:6}}>
-            {activeUser.email} · <ActiveDot lastActive={activeUser.lastActive}/>
-          </div>
+          <div style={{color:A.dim,fontSize:9,fontFamily:A.mono}}>{activeUser.email} &middot; <ActiveDot lastActive={activeUser.lastActive}/></div>
+          <div style={{color:A.faint,fontSize:7,fontFamily:A.mono}}>uid: {activeUser.userId}</div>
         </div>
-        <button onClick={()=>openThread({userId:activeUser.userId,user:{name:activeUser.name,email:activeUser.email,lastActive:activeUser.lastActive},_id:activeUser.userId})}
-          style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>🔄</button>
+        <button onClick={()=>openThread({userId:activeUser.userId,user:{name:activeUser.name,email:activeUser.email,lastActive:activeUser.lastActive}})} style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>{"[R]"}</button>
       </div>
       <div style={{background:"rgba(0,0,0,.3)",borderRadius:12,border:`1px solid ${A.border}`,padding:14,minHeight:300,maxHeight:440,overflowY:"auto",marginBottom:12,display:"flex",flexDirection:"column",gap:8}}>
         {msgs.length===0&&<div style={{color:A.faint,fontFamily:A.mono,fontSize:10,textAlign:"center",padding:"30px 0"}}>No messages yet</div>}
@@ -479,18 +488,13 @@ function ChatTab({adminKey,onMsg}){
         ))}
         <div ref={bottomRef}/>
       </div>
-      {/* Reply box — plain textarea so onKeyDown works reliably */}
       <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-        <textarea
-          placeholder="Type reply... (Enter to send)"
-          value={reply}
+        <textarea placeholder="Type reply... (Enter=send, Shift+Enter=newline)" value={reply}
           onChange={e=>setReply(e.target.value)}
-          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendReply(); } }}
-          rows={2}
-          style={{flex:1,background:"rgba(167,139,250,.07)",border:`1px solid rgba(167,139,250,.3)`,borderRadius:8,padding:"10px 13px",color:A.text,fontFamily:"inherit",fontSize:12,outline:"none",resize:"none",lineHeight:1.5}}
-        />
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendReply();}}}
+          rows={2} style={{flex:1,background:"rgba(167,139,250,.07)",border:"1px solid rgba(167,139,250,.3)",borderRadius:8,padding:"10px 13px",color:A.text,fontFamily:"inherit",fontSize:12,outline:"none",resize:"none",lineHeight:1.5}}/>
         <ABtn c="primary" onClick={sendReply} disabled={sending||!reply.trim()} style={{padding:"12px 20px",height:52,flexShrink:0}}>
-          {sending?<Spin/>:"SEND →"}
+          {sending?<Spin/>:"SEND"}
         </ABtn>
       </div>
     </div>
@@ -499,35 +503,43 @@ function ChatTab({adminKey,onMsg}){
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{color:A.text,fontFamily:A.mono,fontSize:12,fontWeight:700}}>💬 SUPPORT THREADS</div>
-        <button onClick={loadThreads} style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>🔄</button>
+        <div style={{color:A.text,fontFamily:A.mono,fontSize:12,fontWeight:700}}>SUPPORT THREADS</div>
+        <button onClick={loadThreads} style={{background:"none",border:`1px solid ${A.border}`,color:A.dim,fontFamily:A.mono,fontSize:9,cursor:"pointer",padding:"6px 10px",borderRadius:7}}>[R]</button>
       </div>
       {loading&&<div style={{textAlign:"center",padding:30}}><Spin/></div>}
       {!loading&&threads.length===0&&<div style={{color:A.faint,fontFamily:A.mono,fontSize:11,textAlign:"center",padding:"30px 0"}}>No chat threads yet</div>}
-      {threads.map((t,i)=>(
-        <ACard key={i} style={{marginBottom:8,cursor:"pointer",border:`1px solid ${t.unread>0?"rgba(167,139,250,.3)":A.border}`}} onClick={()=>openThread(t)}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                <div style={{color:A.text,fontSize:12,fontWeight:600}}>{t.user?.name||"Unknown User"}</div>
-                {t.unread>0&&<span style={{background:A.red,color:"#fff",fontSize:8,padding:"1px 7px",borderRadius:10,fontFamily:A.mono,fontWeight:700}}>{t.unread} NEW</span>}
+      {threads.map((t,i)=>{
+        const uid=extractUid(t);
+        return(
+          <ACard key={i} style={{marginBottom:8,cursor:"pointer",border:`1px solid ${t.unread>0?"rgba(167,139,250,.3)":A.border}`}} onClick={()=>openThread(t)}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                  <div style={{color:A.text,fontSize:12,fontWeight:600}}>{t.user?.name||"Unknown"}</div>
+                  {t.unread>0&&<span style={{background:A.red,color:"#fff",fontSize:8,padding:"1px 7px",borderRadius:10,fontFamily:A.mono,fontWeight:700}}>{t.unread} NEW</span>}
+                  {!uid&&<span style={{color:A.red,fontSize:8,fontFamily:A.mono}}>NO-ID</span>}
+                </div>
+                <div style={{color:A.dim,fontSize:9,fontFamily:A.mono,marginBottom:2}}>{t.user?.email}</div>
+                <div style={{color:A.faint,fontSize:9,fontFamily:A.mono,marginBottom:2}}>id: {uid||"MISSING"}</div>
+                <div style={{color:A.faint,fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:280}}>{t.lastSender==="admin"?"You: ":""}{t.lastMessage}</div>
               </div>
-              <div style={{color:A.dim,fontSize:9,fontFamily:A.mono,marginBottom:4}}>{t.user?.email}</div>
-              <div style={{color:A.faint,fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:280}}>
-                {t.lastSender==="admin"?"You: ":""}{t.lastMessage}
+              <div style={{textAlign:"right",marginLeft:10,flexShrink:0}}>
+                <div style={{color:A.faint,fontSize:8,fontFamily:A.mono,marginBottom:4}}>{timeAgo(t.lastTime)}</div>
+                <ActiveDot lastActive={t.user?.lastActive}/>
               </div>
             </div>
-            <div style={{textAlign:"right",marginLeft:10,flexShrink:0}}>
-              <div style={{color:A.faint,fontSize:8,fontFamily:A.mono,marginBottom:4}}>{timeAgo(t.lastTime)}</div>
-              <ActiveDot lastActive={t.user?.lastActive}/>
-            </div>
-          </div>
-        </ACard>
-      ))}
+          </ACard>
+        );
+      })}
+      {dbg&&(
+        <div style={{marginTop:16,padding:12,background:"rgba(0,0,0,.6)",border:"1px solid rgba(251,191,36,.3)",borderRadius:8}}>
+          <div style={{color:A.gold,fontFamily:A.mono,fontSize:8,marginBottom:6}}>DEBUG: FIRST THREAD FROM SERVER</div>
+          <pre style={{color:A.faint,fontFamily:A.mono,fontSize:8,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{dbg}</pre>
+        </div>
+      )}
     </div>
   );
 }
-
 // ── Announcements Tab ─────────────────────────────────────────
 function AnnouncementsTab({adminKey,onMsg}){
   const [anns,setAnns]=useState([]); const [loading,setLoading]=useState(true);

@@ -3,7 +3,7 @@ import { api, PLANS, COINS, getBonusPct, fmt, fmt4, timeAgo } from "./api.js";
 import AdminPanel from "./Admin.jsx";
 
 // ── Constants ─────────────────────────────────────────────────
-const SC = { LOGIN:"login", REG:"reg", DASH:"dash", PLANS:"plans", DEPOSIT:"deposit", WALLET:"wallet", REF:"ref", CHAT:"chat" };
+const SC = { LOGIN:"login", REG:"reg", DASH:"dash", PLANS:"plans", DEPOSIT:"deposit", WALLET:"wallet", REF:"ref", CHAT:"chat", DIRECT_DEPOSIT:"direct_deposit" };
 
 const FAKE_NAMES   = ["Alex K.","Maria S.","John D.","Priya M.","Chen W.","Ahmed R.","Sofia L.","Lucas B.","Fatima A.","David N.","Emma T.","Raj P.","Yuki T.","Carlos M.","Aisha B.","Omar F.","Nina V.","Hassan M.","Lily C.","Kwame A."];
 const FAKE_AMOUNTS = [45,78,120,250,380,500,89,160,310,420,95,180,275,640,730,850,1100,55,130,200];
@@ -907,34 +907,267 @@ function ChatScreen({user,token,showToast}){
   );
 }
 
+
+// ── Direct Deposit Screen ─────────────────────────────────────
+function DirectDepositScreen({user,token,setScreen,showToast,refresh}){
+  const [coin,setCoin]=useState("USDT");
+  const [amount,setAmount]=useState("");
+  const [txHash,setTxHash]=useState("");
+  const [copied,setCopied]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [addresses,setAddresses]=useState({});
+  const [step,setStep]=useState(1);
+
+  useEffect(()=>{ api.getAddresses().then(setAddresses).catch(()=>{}); },[]);
+
+  const addr=addresses[coin]||import.meta.env.VITE_DEPOSIT_ADDRESS||"TTGZnhafw44MWzKBTgmHWLeVFZuQHTxaeH";
+  const copy=()=>{try{navigator.clipboard.writeText(addr);}catch{}setCopied(true);setTimeout(()=>setCopied(false),2500);};
+
+  const amt=parseFloat(amount)||0;
+  const bonusPct=amt>=100&&amt<=1000?35:amt>=15&&amt<=50?20:0;
+  const bonusAmt=+(amt*bonusPct/100).toFixed(2);
+
+  const goNext=()=>{
+    if(!amount||amt<=0){showToast("Please enter a deposit amount","error");return;}
+    setStep(2);
+  };
+
+  const confirm=async()=>{
+    if(!txHash.trim()){showToast("Please paste your transaction hash","error");return;}
+    setLoading(true);
+    try{
+      const res=await api.deposit({planId:null,currency:coin,txHash:txHash.trim(),amount:amt},token);
+      showToast(res.message||"Deposit submitted! Admin will verify within 1-12 hours.");
+      await refresh(); setScreen(SC.DASH);
+    }catch(e){showToast(e.message,"error");}
+    finally{setLoading(false);}
+  };
+
+  const COIN_LIST=[
+    {id:"USDT",icon:"💵",color:"#26a17b",network:"TRC-20"},
+    {id:"TRX", icon:"🔴",color:"#ef4444",network:"TRX"},
+    {id:"BTC", icon:"🟠",color:"#f7931a",network:"BTC"},
+    {id:"ETH", icon:"🔷",color:"#627eea",network:"ERC-20"},
+    {id:"DOGE",icon:"🐶",color:"#c2a633",network:"DOGE"},
+  ];
+  const selectedCoin=COIN_LIST.find(c=>c.id===coin)||COIN_LIST[0];
+
+  return(
+    <div style={{paddingBottom:20}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+        <button onClick={()=>step===2?setStep(1):setScreen(SC.DASH)}
+          style={{background:"rgba(167,139,250,.1)",border:"1px solid rgba(167,139,250,.2)",color:"#a78bfa",width:34,height:34,borderRadius:10,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{"<-"}</button>
+        <div>
+          <div style={{color:"#e2e8f0",fontFamily:"'Space Mono',monospace",fontSize:14,fontWeight:700,letterSpacing:1}}>DEPOSIT FUNDS</div>
+          <div style={{color:"rgba(226,232,240,.18)",fontSize:10,fontFamily:"'Space Mono',monospace"}}>Step {step} of 2 - No minimum amount</div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:8,marginBottom:20}}>
+        {[["1","Enter Amount"],["2","Send & Confirm"]].map(([n,l],i)=>{
+          const active=step===i+1; const done=step>i+1;
+          return(
+            <div key={n} style={{flex:1,padding:"10px 12px",borderRadius:12,background:active?"rgba(167,139,250,.12)":done?"rgba(52,211,153,.08)":"rgba(167,139,250,.04)",border:"1px solid "+(active?"rgba(167,139,250,.4)":done?"rgba(52,211,153,.3)":"rgba(167,139,250,.1)"),display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:22,height:22,borderRadius:"50%",background:active?"linear-gradient(135deg,#7c3aed,#a78bfa)":done?"rgba(52,211,153,.3)":"rgba(167,139,250,.1)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Space Mono',monospace",fontSize:10,fontWeight:700,color:active?"#fff":done?"#34d399":"rgba(226,232,240,.18)",flexShrink:0}}>{done?"v":n}</div>
+              <span style={{color:active?"#e2e8f0":done?"#34d399":"rgba(226,232,240,.18)",fontSize:10,fontFamily:"'Space Mono',monospace",fontWeight:active?700:400}}>{l}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {step===1&&(
+        <div>
+          <div style={{marginBottom:16,padding:"14px 16px",background:"linear-gradient(135deg,rgba(251,191,36,.12),rgba(245,158,11,.06))",border:"1px solid rgba(251,191,36,.3)",borderRadius:14}}>
+            <div style={{fontFamily:"'Space Mono',monospace",fontSize:9,color:"#fbbf24",letterSpacing:2,fontWeight:700,marginBottom:10}}>DEPOSIT BONUS - EARN EXTRA</div>
+            <div style={{display:"flex",gap:10}}>
+              <div style={{flex:1,padding:"10px 12px",background:amt>=15&&amt<=50?"rgba(251,191,36,.15)":"rgba(251,191,36,.06)",borderRadius:10,border:"1px solid "+(amt>=15&&amt<=50?"rgba(251,191,36,.5)":"rgba(251,191,36,.15)"),transition:"all .3s"}}>
+                <div style={{color:"#fbbf24",fontFamily:"'Space Mono',monospace",fontSize:16,fontWeight:900}}>+20%</div>
+                <div style={{color:"rgba(226,232,240,.5)",fontSize:10,marginTop:2}}>Deposit $15 - $50</div>
+                {amt>=15&&amt<=50&&<div style={{color:"#fbbf24",fontFamily:"'Space Mono',monospace",fontSize:9,marginTop:4,fontWeight:700}}>YOU QUALIFY!</div>}
+              </div>
+              <div style={{flex:1,padding:"10px 12px",background:amt>=100&&amt<=1000?"rgba(251,191,36,.15)":"rgba(251,191,36,.06)",borderRadius:10,border:"1px solid "+(amt>=100&&amt<=1000?"rgba(251,191,36,.5)":"rgba(251,191,36,.15)"),transition:"all .3s"}}>
+                <div style={{color:"#fbbf24",fontFamily:"'Space Mono',monospace",fontSize:16,fontWeight:900}}>+35%</div>
+                <div style={{color:"rgba(226,232,240,.5)",fontSize:10,marginTop:2}}>Deposit $100 - $1000</div>
+                {amt>=100&&amt<=1000&&<div style={{color:"#fbbf24",fontFamily:"'Space Mono',monospace",fontSize:9,marginTop:4,fontWeight:700}}>YOU QUALIFY!</div>}
+              </div>
+            </div>
+          </div>
+
+          <div style={{background:"rgba(12,8,32,.97)",border:"1px solid rgba(167,139,250,.12)",borderRadius:16,padding:20,marginBottom:14}}>
+            <div style={{color:"#a78bfa",fontSize:9,letterSpacing:2.5,textTransform:"uppercase",fontFamily:"'Space Mono',monospace",marginBottom:8,fontWeight:700}}>DEPOSIT AMOUNT (USD)</div>
+            <div style={{position:"relative",marginBottom:16}}>
+              <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",color:"#a78bfa",fontFamily:"'Space Mono',monospace",fontSize:22,fontWeight:700,zIndex:1}}>$</span>
+              <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" min="0"
+                style={{width:"100%",background:"rgba(167,139,250,.06)",border:"1px solid rgba(167,139,250,.3)",borderRadius:14,padding:"18px 18px 18px 42px",color:"#fff",fontSize:28,fontFamily:"'Space Mono',monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+              {[15,50,100,500].map(v=>(
+                <button key={v} onClick={()=>setAmount(String(v))}
+                  style={{padding:"8px 4px",borderRadius:10,fontFamily:"'Space Mono',monospace",fontSize:10,fontWeight:700,border:"1px solid "+(amount==v?"rgba(167,139,250,.5)":"rgba(167,139,250,.15)"),background:amount==v?"rgba(167,139,250,.15)":"rgba(167,139,250,.05)",color:amount==v?"#a78bfa":"rgba(226,232,240,.5)",cursor:"pointer",transition:"all .15s"}}>
+                  ${v}
+                </button>
+              ))}
+            </div>
+            {bonusPct>0&&amt>0&&(
+              <div style={{marginBottom:16,padding:"10px 14px",background:"rgba(52,211,153,.07)",border:"1px solid rgba(52,211,153,.25)",borderRadius:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{color:"#34d399",fontFamily:"'Space Mono',monospace",fontSize:11}}>Bonus you will receive:</span>
+                <span style={{color:"#34d399",fontFamily:"'Space Mono',monospace",fontSize:14,fontWeight:700}}>+${bonusAmt}</span>
+              </div>
+            )}
+            <div style={{color:"#a78bfa",fontSize:9,letterSpacing:2.5,textTransform:"uppercase",fontFamily:"'Space Mono',monospace",marginBottom:8,fontWeight:700}}>SELECT COIN / NETWORK</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:16}}>
+              {COIN_LIST.map(c=>(
+                <button key={c.id} onClick={()=>setCoin(c.id)}
+                  style={{padding:"10px 4px",borderRadius:10,fontFamily:"'Space Mono',monospace",fontSize:8,fontWeight:700,border:"1px solid "+(coin===c.id?c.color:"rgba(167,139,250,.12)"),background:coin===c.id?(c.color+"20"):"rgba(167,139,250,.04)",color:coin===c.id?c.color:"rgba(226,232,240,.5)",transition:"all .15s",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:18}}>{c.icon}</span>
+                  <span>{c.id}</span>
+                  <span style={{fontSize:7,color:coin===c.id?(c.color+"99"):"rgba(226,232,240,.2)"}}>{c.network}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={goNext} disabled={!amount||amt<=0}
+              style={{width:"100%",padding:"13px 20px",borderRadius:10,fontFamily:"'Space Mono',monospace",fontWeight:700,fontSize:11,letterSpacing:1.5,textTransform:"uppercase",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",color:"#fff",border:"none",cursor:(!amount||amt<=0)?"not-allowed":"pointer",opacity:(!amount||amt<=0)?0.4:1}}>
+              NEXT - SEND {coin} -&gt;
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step===2&&(
+        <div>
+          <div style={{background:"rgba(12,8,32,.97)",border:"1px solid rgba(167,139,250,.3)",borderRadius:16,padding:20,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{color:"rgba(226,232,240,.5)",fontSize:9,fontFamily:"'Space Mono',monospace",letterSpacing:2,marginBottom:4}}>YOU ARE SENDING</div>
+                <div style={{color:"#e2e8f0",fontSize:28,fontFamily:"'Space Mono',monospace",fontWeight:900}}>${amt.toFixed(2)}</div>
+                <div style={{color:selectedCoin.color,fontFamily:"'Space Mono',monospace",fontSize:11,marginTop:3}}>{selectedCoin.icon} {coin} - {selectedCoin.network}</div>
+              </div>
+              {bonusPct>0&&(
+                <div style={{background:"rgba(52,211,153,.1)",border:"1px solid rgba(52,211,153,.3)",borderRadius:10,padding:"8px 14px",textAlign:"center"}}>
+                  <div style={{color:"#34d399",fontFamily:"'Space Mono',monospace",fontSize:9,letterSpacing:1}}>BONUS</div>
+                  <div style={{color:"#34d399",fontFamily:"'Space Mono',monospace",fontSize:20,fontWeight:900}}>+${bonusAmt}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{background:"rgba(12,8,32,.97)",border:"1px solid rgba(167,139,250,.12)",borderRadius:16,padding:20,marginBottom:14}}>
+            <div style={{color:"#a78bfa",fontSize:9,letterSpacing:2.5,textTransform:"uppercase",fontFamily:"'Space Mono',monospace",marginBottom:8,fontWeight:700}}>SEND EXACTLY ${amt.toFixed(2)} {coin} TO THIS ADDRESS</div>
+            <div style={{background:"rgba(167,139,250,.05)",border:"1px solid rgba(167,139,250,.25)",borderRadius:12,padding:"16px",marginBottom:12,wordBreak:"break-all",fontFamily:"'Space Mono',monospace",color:"#a78bfa",fontSize:12,lineHeight:1.8}}>{addr}</div>
+            <button onClick={copy}
+              style={{width:"100%",padding:"13px 20px",borderRadius:10,fontFamily:"'Space Mono',monospace",fontWeight:700,fontSize:11,letterSpacing:1.5,textTransform:"uppercase",background:"rgba(167,139,250,.08)",color:"#a78bfa",border:"1px solid rgba(167,139,250,.12)",cursor:"pointer",marginBottom:14}}>
+              {copied?"ADDRESS COPIED!":"COPY ADDRESS"}
+            </button>
+            <div style={{margin:"4px 0 16px",padding:"14px",background:"rgba(167,139,250,.03)",borderRadius:10,border:"1px solid rgba(167,139,250,.12)",textAlign:"center"}}>
+              <div style={{fontSize:36,marginBottom:4}}>📱</div>
+              <div style={{color:"rgba(226,232,240,.18)",fontSize:9,fontFamily:"'Space Mono',monospace",letterSpacing:2}}>SCAN QR - {selectedCoin.network} NETWORK</div>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{color:"#a78bfa",fontSize:9,letterSpacing:2.5,textTransform:"uppercase",fontFamily:"'Space Mono',monospace",marginBottom:8,fontWeight:700}}>Transaction Hash (TxID)</div>
+              <input value={txHash} onChange={e=>setTxHash(e.target.value)} placeholder="Paste TX hash after sending..."
+                style={{width:"100%",background:"rgba(255,255,255,.02)",border:"1px solid rgba(167,139,250,.12)",borderRadius:10,padding:"13px 14px",color:"#e2e8f0",fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+              <div style={{color:"rgba(226,232,240,.18)",fontSize:10,marginTop:5,fontFamily:"'Space Mono',monospace"}}>Copy the TX hash from your wallet after sending</div>
+            </div>
+            <div style={{padding:"10px 14px",background:"rgba(251,191,36,.05)",border:"1px solid rgba(251,191,36,.15)",borderRadius:8,marginBottom:14}}>
+              <div style={{color:"rgba(251,191,36,.8)",fontSize:9,fontFamily:"'Space Mono',monospace",letterSpacing:1.5,marginBottom:4}}>IMPORTANT</div>
+              <div style={{color:"rgba(226,232,240,.5)",fontSize:11,lineHeight:1.8}}>
+                Send exactly ${amt.toFixed(2)} - wrong amount may delay approval. Use {selectedCoin.network} network only. Approval takes 1-12 hours. Questions? Use the live chat.
+              </div>
+            </div>
+            <button onClick={confirm} disabled={loading}
+              style={{width:"100%",padding:"13px 20px",borderRadius:10,fontFamily:"'Space Mono',monospace",fontWeight:700,fontSize:11,letterSpacing:1.5,textTransform:"uppercase",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",color:"#fff",border:"none",cursor:loading?"not-allowed":"pointer",opacity:loading?0.4:1}}>
+              {loading?"...":"CONFIRM DEPOSIT"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Bottom Nav ────────────────────────────────────────────────
+// UPDATED: Brighter colors, better visibility, deposit button added
 function BottomNav({screen,setScreen,unread,chatUnread,onNotif,onLogout}){
   const tabs=[
-    {id:SC.DASH, ic:"🏠",lb:"Home"},
-    {id:SC.PLANS,ic:"⛏", lb:"Plans"},
-    {id:SC.WALLET,ic:"💳",lb:"Wallet"},
-    {id:SC.REF,  ic:"👥",lb:"Refer"},
-    {id:SC.CHAT, ic:"💬",lb:"Chat",badge:chatUnread},
+    {id:SC.DASH,  ic:"🏠", lb:"Home"},
+    {id:SC.PLANS, ic:"⛏️", lb:"Plans"},
+    {id:SC.WALLET,ic:"💳", lb:"Wallet"},
+    {id:SC.REF,   ic:"👥", lb:"Refer"},
+    {id:SC.CHAT,  ic:"💬", lb:"Chat", badge:chatUnread},
   ];
+
   return(
-    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:100,background:"rgba(6,4,18,.98)",borderTop:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-around",padding:"8px 0 max(12px,env(safe-area-inset-bottom))",backdropFilter:"blur(20px)"}}>
-      {tabs.map(t=>(
-        <button key={t.id} onClick={()=>setScreen(t.id)} style={{background:"none",border:"none",padding:"4px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,opacity:screen===t.id?1:.3,transition:"opacity .2s",minWidth:40,position:"relative",cursor:"pointer"}}>
-          <span style={{fontSize:18}}>{t.ic}</span>
-          <span style={{color:screen===t.id?C.accent:C.dim,fontSize:7,letterSpacing:1.5,fontFamily:C.mono,fontWeight:700}}>{t.lb}</span>
-          {screen===t.id&&<div style={{width:4,height:4,borderRadius:"50%",background:C.accent}}/>}
-          {(t.badge||0)>0&&<div style={{position:"absolute",top:0,right:2,width:8,height:8,borderRadius:"50%",background:C.red,animation:"ping 1s infinite"}}/>}
+    <div style={{
+      position:"fixed",bottom:0,left:0,right:0,zIndex:100,
+      background:"rgba(8,5,22,.98)",
+      borderTop:"1px solid rgba(167,139,250,.35)",
+      backdropFilter:"blur(24px)",
+      boxShadow:"0 -4px 30px rgba(0,0,0,.7), 0 -1px 0 rgba(167,139,250,.15)",
+    }}>
+      {/* Main nav row */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-around",padding:"6px 4px 0"}}>
+        {tabs.map(t=>{
+          const active=screen===t.id;
+          return(
+            <button key={t.id} onClick={()=>setScreen(t.id)}
+              style={{background:"none",border:"none",padding:"6px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,transition:"all .2s",minWidth:44,position:"relative",cursor:"pointer",outline:"none"}}>
+              {/* Active highlight pill */}
+              {active&&<div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",width:32,height:2,borderRadius:2,background:"linear-gradient(90deg,#7c3aed,#a78bfa)"}}/>}
+              <span style={{fontSize:20,filter:active?"drop-shadow(0 0 6px rgba(167,139,250,.8))":"none",transition:"filter .2s"}}>{t.ic}</span>
+              <span style={{
+                color:active?"#c4b5fd":"rgba(226,232,240,.65)",
+                fontSize:8,letterSpacing:1.2,fontFamily:C.mono,fontWeight:700,
+                textShadow:active?"0 0 10px rgba(167,139,250,.6)":"none",
+                transition:"all .2s"
+              }}>{t.lb}</span>
+              {(t.badge||0)>0&&<div style={{position:"absolute",top:2,right:4,width:8,height:8,borderRadius:"50%",background:C.red,animation:"ping 1s infinite",border:"1.5px solid rgba(8,5,22,1)"}}/>}
+            </button>
+          );
+        })}
+
+        {/* Notifications */}
+        <button onClick={onNotif}
+          style={{background:"none",border:"none",padding:"6px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,opacity:1,position:"relative",minWidth:44,cursor:"pointer",outline:"none"}}>
+          <span style={{fontSize:20}}>🔔</span>
+          <span style={{color:"rgba(226,232,240,.65)",fontSize:8,letterSpacing:1.2,fontFamily:C.mono,fontWeight:700}}>ALERTS</span>
+          {unread>0&&<div style={{position:"absolute",top:2,right:4,width:8,height:8,borderRadius:"50%",background:C.red,animation:"ping 1s infinite",border:"1.5px solid rgba(8,5,22,1)"}}/>}
         </button>
-      ))}
-      <button onClick={onNotif} style={{background:"none",border:"none",padding:"4px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,opacity:.6,position:"relative",minWidth:40,cursor:"pointer"}}>
-        <span style={{fontSize:18}}>🔔</span>
-        {unread>0&&<div style={{position:"absolute",top:0,right:2,width:8,height:8,borderRadius:"50%",background:C.red,animation:"ping 1s infinite"}}/>}
-        <span style={{color:C.dim,fontSize:7,letterSpacing:1.5,fontFamily:C.mono}}>ALERTS</span>
-      </button>
-      <button onClick={onLogout} style={{background:"none",border:"none",padding:"4px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,opacity:.3,minWidth:40,cursor:"pointer"}}>
-        <span style={{fontSize:18}}>🚪</span>
-        <span style={{color:C.dim,fontSize:7,letterSpacing:1.5,fontFamily:C.mono}}>EXIT</span>
-      </button>
+
+        {/* Logout */}
+        <button onClick={onLogout}
+          style={{background:"none",border:"none",padding:"6px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:44,cursor:"pointer",outline:"none"}}>
+          <span style={{fontSize:20}}>🚪</span>
+          <span style={{color:"rgba(226,232,240,.45)",fontSize:8,letterSpacing:1.2,fontFamily:C.mono,fontWeight:700}}>EXIT</span>
+        </button>
+      </div>
+
+      {/* ── DEPOSIT BUTTON ROW ── */}
+      <div style={{padding:"8px 16px",paddingBottom:"max(12px,env(safe-area-inset-bottom))"}}>
+        <button onClick={()=>setScreen(SC.DIRECT_DEPOSIT)}
+          style={{
+            width:"100%",
+            padding:"11px 16px",
+            borderRadius:12,
+            background:"linear-gradient(135deg,#7c3aed,#a78bfa,#60a5fa)",
+            border:"none",
+            color:"#fff",
+            fontFamily:C.mono,
+            fontWeight:700,
+            fontSize:11,
+            letterSpacing:2,
+            cursor:"pointer",
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"center",
+            gap:8,
+            boxShadow:"0 4px 20px rgba(124,58,237,.5), inset 0 1px 0 rgba(255,255,255,.15)",
+            textTransform:"uppercase",
+          }}>
+          <span style={{fontSize:16}}>💰</span>
+          💰 DEPOSIT FUNDS
+          <span style={{fontSize:16}}>⛏️</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -1017,7 +1250,7 @@ export default function App(){
           <NewsTicker token={token}/>
         </div>
 
-        <div style={{position:"relative",zIndex:1,width:"100%",maxWidth:680,margin:"0 auto",padding:user?"16px 16px 100px":"0 16px",flex:1}}>
+        <div style={{position:"relative",zIndex:1,width:"100%",maxWidth:680,margin:"0 auto",padding:user?"16px 16px 130px":"0 16px",flex:1}}>
           {!user&&(
             <>
               {screen===SC.LOGIN&&<AuthScreen mode="login"    onLogin={handleLogin} onSwitch={()=>setScreen(SC.REG)}/>}
@@ -1026,7 +1259,7 @@ export default function App(){
           )}
           {user&&(
             <>
-              {screen!==SC.DEPOSIT&&(
+              {screen!==SC.DEPOSIT&&screen!==SC.DIRECT_DEPOSIT&&(
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:8,marginBottom:20}}>
                   <Logo sm/>
                   <div style={{textAlign:"right"}}>
@@ -1041,6 +1274,7 @@ export default function App(){
               {screen===SC.WALLET &&<WalletScreen user={user} token={token} setScreen={setScreen} showToast={showToast} refresh={refresh}/>}
               {screen===SC.REF    &&<RefScreen    user={user} token={token} showToast={showToast}/>}
               {screen===SC.CHAT   &&<ChatScreen   user={user} token={token} showToast={showToast}/>}
+              {screen===SC.DIRECT_DEPOSIT&&<DirectDepositScreen user={user} token={token} setScreen={setScreen} showToast={showToast} refresh={refresh}/>}
               {screen!==SC.DEPOSIT&&<BottomNav screen={screen} setScreen={setScreen} unread={unread} chatUnread={chatUnread} onNotif={()=>setNotifOpen(true)} onLogout={handleLogout}/>}
             </>
           )}
